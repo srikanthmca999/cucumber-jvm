@@ -34,8 +34,7 @@ pipeline {
                 environment name: 'run_test_only', value: 'no'
             }
             steps{
-                sh 'mvn clean install'
-                sh 'mvn clean integration-test'
+                sh 'cd examples/java-calculator && mvn clean integration-test'
             }
         }
 
