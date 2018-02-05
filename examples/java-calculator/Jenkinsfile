@@ -34,7 +34,7 @@ pipeline {
                 environment name: 'run_test_only', value: 'no'
             }
             steps{
-                sh 'mvn test'
+                sh 'mvn clean integration-test'
             }
         }
 
