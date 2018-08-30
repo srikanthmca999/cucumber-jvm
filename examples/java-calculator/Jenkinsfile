@@ -58,7 +58,7 @@ pipeline {
             script {
 
                 mail(bcc: '',
-                     body: "Run ${JOB_NAME}-#${BUILD_NUMBER} succeeded. To get more details, visit the build results page: ${PROMOTION_URL}.",
+                     body: "Run ${JOB_NAME}-#${BUILD_NUMBER} succeeded. To get more details, visit the build results page: ${PROMOTED_URL}.",
                      cc: '',
                      from: 'jenkins-admin@gmail.com',
                      replyTo: '',
