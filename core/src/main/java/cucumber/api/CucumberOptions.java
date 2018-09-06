@@ -32,16 +32,14 @@ public @interface CucumberOptions {
     String[] glue() default {};
 
     /**
+     * @return where to look for glue code (stepdefs and hooks), in addition to default search path
+     */
+    String[] extraGlue() default {};
+
+    /**
      * @return what tags in the features should be executed
      */
     String[] tags() default {};
-
-    /**
-     * @return what formatter(s) to use
-     * @deprecated use {@link #plugin()}
-     */
-    @Deprecated
-    String[] format() default {};
 
     /**
      * @return what plugins(s) to use

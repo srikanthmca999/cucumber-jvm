@@ -9,6 +9,10 @@ and will be executed whenever a non-snapshot version is committed.
 
 Is the build passing?
 
+```
+git checkout master
+```
+
 Also check if you can upgrade any dependencies:
 
 ```
@@ -20,7 +24,6 @@ mvn versions:display-dependency-updates
 Replace version numbers in:
 
 * `examples/java-gradle/build.gradle`
-* `examples/android/android-studio/Cukeulator/app/build.gradle`
 * `CHANGELOG.md`
 
 Then run (replace X.Y.Z below with the next release number): 
@@ -49,6 +52,12 @@ describes how this works.
 Wait for the release to show up on maven central. Then update the dependency in example projects:
 
 * https://github.com/cucumber/cucumber-java-skeleton
+
+Update the cucumber-jvm version in the documentation project:
+
+* https://github.com/cucumber/docs.cucumber.io
+
+The cucumber-jvm version for the docs is specified in the docs [versions.yaml](https://github.com/cucumber/docs.cucumber.io/blob/master/data/versions.yaml)
 
 All done! Hurray!
 
