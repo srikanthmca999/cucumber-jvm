@@ -10,8 +10,6 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.List;
 
-@WebAppConfiguration
-@ContextConfiguration("classpath:cucumber.xml")
 public class UserStepdefs {
     @Autowired
     private UserRepository userRepository;
@@ -27,7 +25,7 @@ public class UserStepdefs {
         userRepository.save(user);
     }
 
-    @Given("^a User has posted the following messages:$")
+    @Given("a User has posted the following messages:")
     public void a_User_has_posted_the_following_messages(List<Message> messages) throws Throwable {
         thereIsAuser();
         for (Message m : messages) {

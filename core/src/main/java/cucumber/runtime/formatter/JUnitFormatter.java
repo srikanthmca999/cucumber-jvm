@@ -1,21 +1,20 @@
 package cucumber.runtime.formatter;
 
+import cucumber.api.PickleStepTestStep;
 import cucumber.api.Result;
-import cucumber.api.TestStep;
 import cucumber.api.event.EventHandler;
+import cucumber.api.event.EventListener;
 import cucumber.api.event.EventPublisher;
 import cucumber.api.event.TestCaseFinished;
 import cucumber.api.event.TestCaseStarted;
 import cucumber.api.event.TestRunFinished;
 import cucumber.api.event.TestSourceRead;
 import cucumber.api.event.TestStepFinished;
-import cucumber.api.formatter.Formatter;
 import cucumber.api.formatter.StrictAware;
 import cucumber.runtime.CucumberException;
+import cucumber.runtime.Utils;
 import cucumber.runtime.io.URLOutputStream;
 import cucumber.runtime.io.UTF8OutputStreamWriter;
-import gherkin.GherkinDialect;
-import gherkin.GherkinDialectProvider;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -28,10 +27,8 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
@@ -42,7 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-final class JUnitFormatter implements Formatter, StrictAware {
+final class JUnitFormatter implements EventListener, StrictAware {
     private final Writer out;
     private final Document doc;
     private final Element rootElement;
@@ -124,8 +121,8 @@ final class JUnitFormatter implements Formatter, StrictAware {
     }
 
     private void handleTestStepFinished(TestStepFinished event) {
-        if (!event.testStep.isHook()) {
-            testCase.steps.add(event.testStep);
+        if (event.testStep instanceof PickleStepTestStep) {
+            testCase.steps.add((PickleStepTestStep) event.testStep);
             testCase.results.add(event.result);
         }
     }
@@ -145,9 +142,6 @@ final class JUnitFormatter implements Formatter, StrictAware {
             rootElement.setAttribute("failures", String.valueOf(rootElement.getElementsByTagName("failure").getLength()));
             rootElement.setAttribute("skipped", String.valueOf(rootElement.getElementsByTagName("skipped").getLength()));
             rootElement.setAttribute("time", sumTimes(rootElement.getElementsByTagName("testcase")));
-            if (rootElement.getElementsByTagName("testcase").getLength() == 0) {
-                addDummyTestCase(); // to avoid failed Jenkins jobs
-            }
             TransformerFactory transfac = TransformerFactory.newInstance();
             Transformer trans = transfac.newTransformer();
             trans.setOutputProperty(OutputKeys.INDENT, "yes");
@@ -158,16 +152,6 @@ final class JUnitFormatter implements Formatter, StrictAware {
         } catch (TransformerException e) {
             throw new CucumberException("Error while transforming.", e);
         }
-    }
-
-    private void addDummyTestCase() {
-        Element dummy = doc.createElement("testcase");
-        dummy.setAttribute("classname", "dummy");
-        dummy.setAttribute("name", "dummy");
-        rootElement.appendChild(dummy);
-        Element skipped = doc.createElement("skipped");
-        skipped.setAttribute("message", "No features found");
-        dummy.appendChild(skipped);
     }
 
     private String sumTimes(NodeList testCaseNodes) {
@@ -217,7 +201,7 @@ final class JUnitFormatter implements Formatter, StrictAware {
         static String previousTestCaseName;
         static int exampleNumber;
         static boolean treatConditionallySkippedAsFailure = false;
-        final List<TestStep> steps = new ArrayList<TestStep>();
+        final List<PickleStepTestStep> steps = new ArrayList<PickleStepTestStep>();
         final List<Result> results = new ArrayList<Result>();
         private final cucumber.api.TestCase testCase;
 
@@ -233,16 +217,12 @@ final class JUnitFormatter implements Formatter, StrictAware {
         private String calculateElementName(cucumber.api.TestCase testCase) {
             String testCaseName = testCase.getName();
             if (testCaseName.equals(previousTestCaseName)) {
-                return testCaseName + (includesBlank(testCaseName) ? " " : "_") + ++exampleNumber;
+                return Utils.getUniqueTestNameForScenarioExample(testCaseName, ++exampleNumber);
             } else {
                 previousTestCaseName = testCase.getName();
                 exampleNumber = 1;
                 return testCaseName;
             }
-        }
-
-        private boolean includesBlank(String testCaseName) {
-            return testCaseName.indexOf(' ') != -1;
         }
 
         public void addTestCaseElement(Document doc, Element tc, Result result) {

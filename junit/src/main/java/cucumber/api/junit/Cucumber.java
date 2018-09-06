@@ -1,10 +1,22 @@
 package cucumber.api.junit;
 
 import cucumber.api.CucumberOptions;
+import cucumber.api.StepDefinitionReporter;
 import cucumber.api.event.TestRunFinished;
-import cucumber.api.formatter.Formatter;
+import cucumber.api.event.TestRunStarted;
+import cucumber.runner.EventBus;
+import cucumber.runner.TimeService;
+import cucumber.runtime.BackendModuleBackendSupplier;
+import cucumber.runtime.BackendSupplier;
+import cucumber.runner.TimeServiceEventBus;
 import cucumber.runtime.ClassFinder;
-import cucumber.runtime.Runtime;
+import cucumber.runtime.FeaturePathFeatureSupplier;
+import cucumber.runtime.filter.Filters;
+import cucumber.runtime.formatter.Plugins;
+import cucumber.runtime.filter.RerunFilters;
+import cucumber.runtime.formatter.PluginFactory;
+import cucumber.runtime.model.FeatureLoader;
+import cucumber.runner.ThreadLocalRunnerSupplier;
 import cucumber.runtime.RuntimeOptions;
 import cucumber.runtime.RuntimeOptionsFactory;
 import cucumber.runtime.io.MultiLoader;
@@ -13,7 +25,6 @@ import cucumber.runtime.io.ResourceLoaderClassFinder;
 import cucumber.runtime.junit.Assertions;
 import cucumber.runtime.junit.FeatureRunner;
 import cucumber.runtime.junit.JUnitOptions;
-import cucumber.runtime.junit.JUnitReporter;
 import cucumber.runtime.model.CucumberFeature;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -24,7 +35,6 @@ import org.junit.runners.ParentRunner;
 import org.junit.runners.model.InitializationError;
 import org.junit.runners.model.Statement;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,13 +43,12 @@ import java.util.List;
  * Classes annotated with {@code @RunWith(Cucumber.class)} will run a Cucumber Feature.
  * In general, the runner class should be empty without any fields or methods.
  * For example:
- * <p>
  * <blockquote><pre>
  * &#64;RunWith(Cucumber.class)
  * &#64;CucumberOptions(plugin = "pretty")
  * public class RunCukesTest {
  * }
- * </pre></blockquote>
+Fail * </pre></blockquote>
  * <p>
  * Cucumber will look for a {@code .feature} file on the classpath, using the same resource
  * path as the annotated class ({@code .class} substituted by {@code .feature}).
@@ -47,26 +56,26 @@ import java.util.List;
  * Additional hints can be given to Cucumber by annotating the class with {@link CucumberOptions}.
  * <p>
  * Cucumber also supports JUnits {@link ClassRule}, {@link BeforeClass} and {@link AfterClass} annotations.
- * These will executed before and after all scenarios. Using these is not recommended as it limits the portability
+ * These will be executed before and after all scenarios. Using these is not recommended as it limits the portability
  * between different runners; they may not execute correctly when using the commandline, IntelliJ IDEA or
  * Cucumber-Eclipse. Instead it is recommended to use Cucumbers `Before` and `After` hooks.
  *
  * @see CucumberOptions
  */
 public class Cucumber extends ParentRunner<FeatureRunner> {
-    private final JUnitReporter jUnitReporter;
     private final List<FeatureRunner> children = new ArrayList<FeatureRunner>();
-    private final Runtime runtime;
-    private final Formatter formatter;
+    private final EventBus bus;
+    private final ThreadLocalRunnerSupplier runnerSupplier;
+    private final Filters filters;
+    private final JUnitOptions junitOptions;
 
     /**
      * Constructor called by JUnit.
      *
      * @param clazz the class with the @RunWith annotation.
-     * @throws java.io.IOException                         if there is a problem
      * @throws org.junit.runners.model.InitializationError if there is another problem
      */
-    public Cucumber(Class clazz) throws InitializationError, IOException {
+    public Cucumber(Class clazz) throws InitializationError {
         super(clazz);
         ClassLoader classLoader = clazz.getClassLoader();
         Assertions.assertNoCucumberAnnotatedMethods(clazz);
@@ -75,32 +84,29 @@ public class Cucumber extends ParentRunner<FeatureRunner> {
         RuntimeOptions runtimeOptions = runtimeOptionsFactory.create();
 
         ResourceLoader resourceLoader = new MultiLoader(classLoader);
-        runtime = createRuntime(resourceLoader, classLoader, runtimeOptions);
-        formatter = runtimeOptions.formatter(classLoader);
-        final JUnitOptions junitOptions = new JUnitOptions(runtimeOptions.getJunitOptions());
-        final List<CucumberFeature> cucumberFeatures = runtimeOptions.cucumberFeatures(resourceLoader, runtime.getEventBus());
-        jUnitReporter = new JUnitReporter(runtime.getEventBus(), runtimeOptions.isStrict(), junitOptions);
-        addChildren(cucumberFeatures);
-    }
+        FeatureLoader featureLoader = new FeatureLoader(resourceLoader);
+        FeaturePathFeatureSupplier featureSupplier = new FeaturePathFeatureSupplier(featureLoader, runtimeOptions);
+        // Parse the features early. Don't proceed when there are lexer errors
+        final List<CucumberFeature> features = featureSupplier.get();
 
-    /**
-     * Create the Runtime. Can be overridden to customize the runtime or backend.
-     *
-     * @param resourceLoader used to load resources
-     * @param classLoader    used to load classes
-     * @param runtimeOptions configuration
-     * @return a new runtime
-     * @throws InitializationError if a JUnit error occurred
-     * @throws IOException         if a class or resource could not be loaded
-     * @deprecated Neither the runtime nor the backend or any of the classes involved in their construction are part of
-     * the public API. As such they should not be  exposed. The recommended way to observe the cucumber process is to
-     * listen to events by using a plugin. For example the JSONFormatter.
-     */
-    @Deprecated
-    protected Runtime createRuntime(ResourceLoader resourceLoader, ClassLoader classLoader,
-                                    RuntimeOptions runtimeOptions) throws InitializationError, IOException {
         ClassFinder classFinder = new ResourceLoaderClassFinder(resourceLoader, classLoader);
-        return new Runtime(resourceLoader, classFinder, classLoader, runtimeOptions);
+        BackendSupplier backendSupplier = new BackendModuleBackendSupplier(resourceLoader, classFinder, runtimeOptions);
+        this.bus = new TimeServiceEventBus(TimeService.SYSTEM);
+        Plugins plugins = new Plugins(classLoader, new PluginFactory(), bus, runtimeOptions);
+        this.runnerSupplier = new ThreadLocalRunnerSupplier(runtimeOptions, bus, backendSupplier);
+        RerunFilters rerunFilters = new RerunFilters(runtimeOptions, featureLoader);
+        this.filters = new Filters(runtimeOptions, rerunFilters);
+        this.junitOptions = new JUnitOptions(runtimeOptions.isStrict(), runtimeOptions.getJunitOptions());
+        final StepDefinitionReporter stepDefinitionReporter = plugins.stepDefinitionReporter();
+
+        // Start the run before reading the features.
+        // Allows the test source read events to be broadcast properly
+        bus.send(new TestRunStarted(bus.getTime()));
+        for (CucumberFeature feature : features) {
+            feature.sendTestSourceRead(bus);
+        }
+        runnerSupplier.get().reportStepDefinitions(stepDefinitionReporter);
+        addChildren(features);
     }
 
     @Override
@@ -125,15 +131,14 @@ public class Cucumber extends ParentRunner<FeatureRunner> {
             @Override
             public void evaluate() throws Throwable {
                 features.evaluate();
-                runtime.getEventBus().send(new TestRunFinished(runtime.getEventBus().getTime()));
-                runtime.printSummary();
+                bus.send(new TestRunFinished(bus.getTime()));
             }
         };
     }
 
     private void addChildren(List<CucumberFeature> cucumberFeatures) throws InitializationError {
         for (CucumberFeature cucumberFeature : cucumberFeatures) {
-            FeatureRunner featureRunner = new FeatureRunner(cucumberFeature, runtime, jUnitReporter);
+            FeatureRunner featureRunner = new FeatureRunner(cucumberFeature, filters, runnerSupplier, junitOptions);
             if (!featureRunner.isEmpty()) {
                 children.add(featureRunner);
             }
