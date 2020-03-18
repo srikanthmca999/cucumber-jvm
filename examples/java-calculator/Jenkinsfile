@@ -16,7 +16,10 @@ pipeline {
                 environment name: 'run_test_only', value: 'yes'
             }
             steps{
-                sh 'cd examples/java-calculator && /usr/local/share/maven/bin/mvn clean integration-test'
+                sh '''
+                  export JAVA_HOME='/var/lib/jenkins/tools/hudson.model.JDK/jdk'
+                  cd examples/java-calculator && /usr/local/share/maven/bin/mvn clean integration-test
+                '''
             }
         }
 
